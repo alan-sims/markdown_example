@@ -1,0 +1,685 @@
+---
+title: "Rmarkdown_new"
+author: "Alan S"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+---
+
+## Driving Simulation Alcohol Results
+
+Below are some comparisons of various driving and vision metrics comparing when you drove with a blood alcohol content (BAC) of about 0.050% to when you were sober. Please take a moment to consider how affected your driving performance and perception may be, at a BAC level equivalent to the maximum that is legally accepted.
+
+**NOTE:** Please be aware that the results below are from a single, lab-controlled experiment and may not generalise to actual driving performance and behaviour. In Australia, it is illegal to drive with a BAC of 0.050% or above, for most drivers on their open license.
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_knit$set(root.dir = '/Volumes/AlanPhD/Alan_PhD_Data/P99')
+
+library(tidyverse)
+library(ggridges)
+library(rmarkdown)
+library(saccades) ##this is good if you need to segment
+library(png) ##this reads in the png image
+library(wesanderson) ##this is just awesome!
+library(graphics) ##cant remember what this is for...
+library(matlab) ##this might be for the traditional heatmap colours?
+library(grid)
+library(Rmisc)
+library(patchwork)
+library(gapminder)
+library(broom)
+library(readxl)
+library(cowplot)
+library(viridis)
+library(knitr)
+colors <- c('0.00' = '#FDE725FF', '0.05' = '#22A884FF', '0.08' = '#440154FF')
+```
+
+## Eye-Tracking
+While you were driving, infrared cameras were tracking where you were looking throughout. 
+The heatmaps below show a trend on where you spent most of your time looking between the varying alcohol conditions. The darker the circle, the more fixations you made in that area. The pictures below show how your spread of gaze differed between the conditions
+
+```{r, echo=FALSE}
+
+# Function to import dataframes and perform renaming
+import_and_rename <- function(folder_path, file_names, pattern, replacement) {
+  # Create an empty list to store the dataframes
+  drive_list <- list()
+  
+  # Loop through the file names
+  for (file_name in file_names) {
+    file_path <- file.path(folder_path, file_name)
+    dataframe <- read.csv(file_path, sep = "\t")
+    drive_list[[file_name]] <- dataframe
+  }
+  
+  # Get the current names of the dataframes in the list
+  current_names <- names(drive_list)
+  
+  # Create a function to rename the dataframes
+  rename_dataframe <- function(name) {
+    new_name <- gsub(pattern, replacement, name)
+    return(new_name)
+  }
+  
+  # Apply the renaming function to the current names
+  new_names <- sapply(current_names, rename_dataframe)
+  
+  # Update the names of the dataframes in the list
+  names(drive_list) <- new_names
+  
+  # Renaming the columns in each dataframe of the list
+  drive_list <- lapply(drive_list, function(df) {
+    colnames(df) <- c('time', 'eyex', 'eyey', 'posx', 'posy', 'screenID')  # Rename the columns
+    return(df)
+  })
+  
+  return(drive_list)
+}
+
+# Set the working directory
+setwd("/Volumes/AlanPhD/Alan_PhD_Data/P99")
+
+# Import and rename drive 1 dataframes
+'cond_0.00' <- import_and_rename("0.00/Eye-Tracking/", c("Section 1_ET.csv", "Section 2_ET.csv", "Section 3_ET.csv"), "Section ", "0.00_section")
+
+# Import and rename drive 2 dataframes
+'cond_0.05' <- import_and_rename("0.05/Eye-Tracking/", c("Section 1_ET.csv", "Section 2_ET.csv", "Section 3_ET.csv"), "Section ", "0.05_section")
+
+# Import and rename drive 3 dataframes
+'cond_0.08' <- import_and_rename("0.08/Eye-Tracking/", c("Section 1_ET.csv", "Section 2_ET.csv", "Section 3_ET.csv"), "Section ", "0.08_section")
+
+cond_0.00 <- Map(function(df, section) {
+  df$section <- section
+  return(df)
+}, cond_0.00, seq_along(cond_0.00))
+
+cond_0.05 <- Map(function(df, section) {
+  df$section <- section
+  return(df)
+}, cond_0.05, seq_along(cond_0.05))
+
+cond_0.08 <- Map(function(df, section) {
+  df$section <- section
+  return(df)
+}, cond_0.08, seq_along(cond_0.08))
+
+
+# Combine the dataframes using rbind
+combined_0.00 <- do.call(rbind, cond_0.00)
+combined_0.05 <- do.call(rbind, cond_0.05)
+combined_0.08 <- do.call(rbind, cond_0.08)
+
+#changing the screen ID to left, cen, right, none
+for (i in 1:length(combined_0.00)) {
+  # Apply the code to each dataframe
+  combined_0.00$screenID <- ifelse(combined_0.00$screenID == 4, "cen",
+                                        ifelse(combined_0.00$screenID == 8, "left",
+                                               ifelse(combined_0.00$screenID == 9, "right",
+                                                      ifelse(combined_0.00$screenID == -1, "none", combined_0.00$screenID))))
+}
+
+for (i in 1:length(combined_0.05)) {
+  # Apply the code to each dataframe
+  combined_0.05$screenID <- ifelse(combined_0.05$screenID == 4, "cen",
+                                   ifelse(combined_0.05$screenID == 8, "left",
+                                          ifelse(combined_0.05$screenID == 9, "right",
+                                                 ifelse(combined_0.05$screenID == -1, "none", combined_0.05$screenID))))
+}
+
+for (i in 1:length(combined_0.08)) {
+  # Apply the code to each dataframe
+  combined_0.08$screenID <- ifelse(combined_0.08$screenID == 4, "cen",
+                                   ifelse(combined_0.08$screenID == 8, "left",
+                                          ifelse(combined_0.08$screenID == 9, "right",
+                                                 ifelse(combined_0.08$screenID == -1, "none", combined_0.08$screenID))))
+}
+
+#adjust the x values for the center and right screens
+for (i in 1:length(combined_0.00)) {
+  # Apply the code to each dataframe
+  combined_0.00$posx <- ifelse(combined_0.00$screenID == "cen", combined_0.00$posx + 3840,
+                            ifelse(combined_0.00$screenID == "right", combined_0.00$posx + 7680, combined_0.00$posx))
+}
+for (i in 1:length(combined_0.05)) {
+  # Apply the code to each dataframe
+  combined_0.05$posx <- ifelse(combined_0.05$screenID == "cen", combined_0.05$posx + 3840,
+                            ifelse(combined_0.05$screenID == "right", combined_0.05$posx + 7680, combined_0.05$posx))
+}
+for (i in 1:length(combined_0.08)) {
+  # Apply the code to each dataframe
+  combined_0.08$posx <- ifelse(combined_0.08$screenID == "cen", combined_0.08$posx + 3840,
+                            ifelse(combined_0.08$screenID == "right", combined_0.08$posx + 7680, combined_0.08$posx))
+}
+
+#hor_sd_0.00 <- sd(filtered_ET$$posx)
+#hor_sd_0.05 <- sd(filtered_ET$$posx)
+#hor_sd_0.08 <- sd(filtered_ET$
+#ver_sd_0.00 <- sd(filtered_ET$$posy)
+#ver_sd_0.05 <- sd(filtered_ET$$posy)
+#ver_sd_0.08 <- sd(filtered_ET$$posy) 
+
+# Create a data frame
+#sd_table <- data.frame(
+#  Condition = c("0.00", "0.05", "0.08"),
+#  Horizontal_SD = c(hor_sd_0.00, hor_sd_0.05, hor_sd_0.08),
+#  Vertical_SD = c(ver_sd_0.00, ver_sd_0.05, ver_sd_0.08)
+#)
+
+# Print the table in RMarkdown using knitr::kable
+#knitr::kable(sd_table, caption = "Standard Deviations of Positions")
+
+SE_0.00 <- read.csv("0.00/Eye-Tracking/P99.log", sep = "\t")
+SE_0.00$TimeStamp <- SE_0.00$TimeStamp - SE_0.00$TimeStamp[1] 
+SE_0.00 <- subset(SE_0.00, TimeStamp <= 17600000000)
+SE_0.00$Trial = 'alc_0.00'
+
+SE_0.05 <- read.csv("0.05/Eye-Tracking/P99.log", sep = "\t")
+SE_0.05$TimeStamp <- SE_0.05$TimeStamp - SE_0.05$TimeStamp[1] 
+SE_0.05 <- subset(SE_0.05, TimeStamp <= 17600000000)
+SE_0.05$Trial = 'alc_0.05'
+
+SE_0.08 <- read.csv("0.08/Eye-Tracking/P99.log", sep = "\t")
+SE_0.08$TimeStamp <- SE_0.08$TimeStamp - SE_0.08$TimeStamp[1] 
+SE_0.08 <- subset(SE_0.08, TimeStamp <= 17600000000)
+SE_0.08$Trial = 'alc_0.08'
+
+# Step 2: Combine datasets
+combined <- rbind(SE_0.00, SE_0.05, SE_0.08)
+
+# Step 3: Select and rename relevant columns
+combined_ET <- combined %>% select(TimeStamp, Trial, GazeDirection.x, GazeDirection.y)
+filtered_ET <- combined_ET %>% filter(GazeDirection.x != 0)
+
+# Rename columns using dplyr::rename
+filtered_ET <- filtered_ET %>% dplyr::rename(
+  time = TimeStamp,
+  trial = Trial,
+  x = GazeDirection.x,
+  y = GazeDirection.y
+)
+
+# Step 4: Ensure the 'trial' column is a factor
+filtered_ET$trial <- as.factor(filtered_ET$trial)
+
+#same again but with the filtered data.
+filtered_fixes <- detect.fixations(filtered_ET, lambda = 15, smooth.coordinates = T,
+                                   smooth.saccades = T)
+filtered_fixes$trial <- as.factor(filtered_fixes$trial) 
+
+# Step 5: Calculate standard deviations
+std_devs <- filtered_ET %>%
+  dplyr::group_by(trial) %>%
+  dplyr::summarize(
+    sd_x = sd(x, na.rm = TRUE),
+    sd_y = sd(y, na.rm = TRUE)
+  )
+
+# Display the table of sd
+kable(std_devs, caption = "Standard Deviations of x and y by Trial")
+
+
+
+d1 <- readPNG("visual2.png",native = T) ##read in image
+d1 <- rasterGrob(d1,
+                 width=unit(1,"npc"), ##make sure to include these so it scales
+                 height=unit(1,"npc"), ##make sure to include these so it scales
+                 interpolate=F)
+m1<-jet.colors(n=20) ##just using a traditional heatmap
+m1<-wes_palette(name='Zissou1',n=20,type='continuous') ##you can use wesanderson ones
+
+minAlpha = 0 ##change this to change transparency of overlay
+maxAlpha = 1 ##change this to change transparency of overlay
+
+fixShape = 3 ##set to + symbols
+
+plot_0.00 <- ggplot(SE_0.00,aes(GazeDirection.x, GazeDirection.y))+
+  annotation_custom(d1, xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) +
+  stat_ellipse(colour='white',linewidth=2) +
+  stat_ellipse(colour='black',linewidth=1) +
+  #Inf will scale to fill the page
+  ###uncomment these if you want points overlaid
+  geom_point(shape=3,col='black',alpha=0)+
+  geom_point(shape=3,col='white',alpha=0.7)+
+  stat_density2d(geom = "raster",aes(fill = ..density..,alpha=..density..),contour=F,adjust = 10)+
+  scale_x_continuous(limits = c(-0.5,0.5),expand=c(0,0))+ ##these are set by the coordinate system of the tracker
+  scale_y_continuous(limits = c(-0.5,0.5),expand=c(0,0))+ ##these are set by the coordinate system of the tracker
+  scale_fill_gradientn(colors = m1)+ ##change this for different color scales
+  scale_alpha_continuous(range=c(minAlpha,maxAlpha))+ ##set limits for transparency of heatmap
+  theme_linedraw()+ ##linedraw is a nice plotting theme
+  guides(size='none',fill='none',alpha='none') + ##remove
+  coord_fixed(0.1875) +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank()) +
+  ggtitle("0.00")
+
+plot_0.05 <- ggplot(SE_0.05,aes(GazeDirection.x, GazeDirection.y))+
+  annotation_custom(d1, xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) +
+  stat_ellipse(colour='white',linewidth=2) +
+  stat_ellipse(colour='black',linewidth=1) +
+  #Inf will scale to fill the page
+  ###uncomment these if you want points overlaid
+  geom_point(shape=3,col='black',alpha=0)+
+  geom_point(shape=3,col='white',alpha=0.7)+
+  stat_density2d(geom = "raster",aes(fill = ..density..,alpha=..density..),contour=F,adjust = 10)+
+  scale_x_continuous(limits = c(-0.5,0.5),expand=c(0,0))+ ##these are set by the coordinate system of the tracker
+  scale_y_continuous(limits = c(-0.5,0.5),expand=c(0,0))+ ##these are set by the coordinate system of the tracker
+  scale_fill_gradientn(colors = m1)+ ##change this for different color scales
+  scale_alpha_continuous(range=c(minAlpha,maxAlpha))+ ##set limits for transparency of heatmap
+  theme_linedraw()+ ##linedraw is a nice plotting theme
+  guides(size='none',fill='none',alpha='none') + ##remove
+  coord_fixed(0.1875) +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank()) +
+  ggtitle("0.05")
+
+plot_0.08 <- ggplot(SE_0.08,aes(GazeDirection.x, GazeDirection.y))+
+  annotation_custom(d1, xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) +
+  stat_ellipse(colour='white',linewidth=2) +
+  stat_ellipse(colour='black',linewidth=1) +
+  #Inf will scale to fill the page
+  ###uncomment these if you want points overlaid
+  geom_point(shape=3,col='black',alpha=0)+
+  geom_point(shape=3,col='white',alpha=0.7)+
+  stat_density2d(geom = "raster",aes(fill = ..density..,alpha=..density..),contour=F,adjust = 10)+
+  scale_x_continuous(limits = c(-0.5,0.5),expand=c(0,0))+ ##these are set by the coordinate system of the tracker
+  scale_y_continuous(limits = c(-0.5,0.5),expand=c(0,0))+ ##these are set by the coordinate system of the tracker
+  scale_fill_gradientn(colors = m1)+ ##change this for different color scales
+  scale_alpha_continuous(range=c(minAlpha,maxAlpha))+ ##set limits for transparency of heatmap
+  theme_linedraw()+ ##linedraw is a nice plotting theme
+  guides(size='none',fill='none',alpha='none') + ##remove
+  coord_fixed(0.1875) +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank()) +
+  ggtitle("0.08")
+
+combined_plot <- plot_grid(plot_0.00, plot_0.05, plot_0.08, ncol = 1)
+
+# Display the combined plot
+print(combined_plot)
+
+
+
+
+ggplot(filtered_ET, aes(x = x, y = trial)) +
+  geom_density_ridges(aes(fill = trial)) +
+  theme(legend.position = "none") +
+  theme_minimal() +
+  labs(x = "Eye tracking devation", y = "Horizontal Spread of Gaze") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  xlim(-0.5, 0.5)
+
+
+#comparing horizontal spread between conditions
+ggplot(filtered_ET, aes(x = y, y = trial)) +
+  geom_density_ridges(aes(fill = trial)) +
+  theme(legend.position = "none") +
+  theme_minimal() +
+  labs(x = "Vertical Spread of Gaze", y = "Alcohol Dose Condition") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  xlim(-0.5, 0.5) + coord_flip()
+
+
+```
+
+
+## Driving Metrics
+```{r, echo=FALSE}
+# Function to import dataframes and perform renaming
+import_and_rename <- function(folder_path, file_names, pattern, replacement) {
+  # Create an empty list to store the dataframes
+  drive_list <- list()
+  
+  # Loop through the file names
+  for (file_name in file_names) {
+    file_path <- file.path(folder_path, file_name)
+    dataframe <- read.csv(file_path, sep = "\t")
+    drive_list[[file_name]] <- dataframe
+  }
+  
+  # Get the current names of the dataframes in the list
+  current_names <- names(drive_list)
+  
+  # Create a function to rename the dataframes
+  rename_dataframe <- function(name) {
+    new_name <- gsub(pattern, replacement, name)
+    return(new_name)
+  }
+  
+  # Apply the renaming function to the current names
+  new_names <- sapply(current_names, rename_dataframe)
+  
+  # Update the names of the dataframes in the list
+  names(drive_list) <- new_names
+  
+  # Renaming the columns in each dataframe of the list
+  drive_list <- lapply(drive_list, function(df) {
+    colnames(df) <- c('time', 'red_car_speed', 'speed', 'coherence', 'headway', 'sdlp', 'lane_crossing', 'lane')  # Rename the columns
+    return(df)
+  })
+  
+  return(drive_list)
+}
+
+# Set the working directory
+setwd("/Volumes/AlanPhD/Alan_PhD_Data/P99")
+
+# Import and rename drive 1 dataframes
+'0.00' <- import_and_rename("0.00/Driving/", c("Section 1.csv", "Section 2.csv", "Section 3.csv"), "Section ", "0.00_section")
+
+# Import and rename drive 2 dataframes
+'0.05' <- import_and_rename("0.05/Driving/", c("Section 1.csv", "Section 2.csv", "Section 3.csv"), "Section ", "0.05_section")
+
+# Import and rename drive 3 dataframes
+'0.08' <- import_and_rename("0.08/Driving/", c("Section 1.csv", "Section 2.csv", "Section 3.csv"), "Section ", "0.08_section")
+```
+
+### Speed
+
+```{r, echo=FALSE}
+
+# Create an empty list to store the results
+speed_list <- list()
+
+# Loop through the drives and sections using lapply
+conditions <- c("0.00", "0.05", "0.08")
+
+speed_list <- lapply(conditions, function(condition) {
+  drive <- get(condition)
+  
+  section_list <- lapply(1:3, function(section) {
+    section_df <- drive[[paste0(condition, "_section", section, ".csv")]]
+    speed_df <- data.frame(time = section_df$time,
+                           speed = section_df$speed,
+                           section = factor(section),
+                           condition = factor(condition))
+    return(speed_df)
+  })
+  
+  names(section_list) <- paste0(condition, "_speed", 1:3)
+  
+  return(section_list)
+})
+
+# Flatten the nested list into a single list
+speed_list <- unlist(speed_list, recursive = FALSE)
+
+# If you want to combine all dataframes into one
+combined_speed_df <- do.call(rbind, speed_list)
+
+filtered_data <- combined_speed_df[combined_speed_df$section != 1, ]
+
+# Create a summary dataframe with mean values for each condition
+speedstats <- aggregate(speed ~ condition, data = filtered_data, mean)
+speed_sd <- aggregate(speed ~ condition, data = filtered_data, sd)
+speed_sd$speed <- round(speed_sd$speed, 2)
+speed_stat0.00 <- round(speedstats$speed[speedstats$condition =="0.00"], 2)
+speed_stat0.05 <- round(speedstats$speed[speedstats$condition =="0.05"], 2)
+speed_stat0.08 <- round(speedstats$speed[speedstats$condition =="0.08"], 2)
+speed_sd0.05 <- round(speed_sd$speed[speed_sd$condition =="0.05"], 2)
+speed_sd0.08 <- round(speed_sd$speed[speed_sd$condition =="0.08"], 2)
+speed_sd0.00 <- round(speed_sd$speed[speed_sd$condition =="0.00"], 2)
+
+#finding out how much they went over the speed limit
+
+excess_0.00 <- excess_0.05 <- excess_0.08 <- numeric()
+conditions <- c("0.00", "0.05", "0.08")
+
+for (i in seq_along(conditions)) {
+  condition <- conditions[i]
+  
+  speed_over_115 <- sum(filtered_data$speed[filtered_data$condition == condition] > 115)
+  rows_condition <- nrow(filtered_data[filtered_data$condition == condition, ])
+  excess_percentage <- round((speed_over_115 / rows_condition) * 100, 2)
+  
+  # Assign results to respective variables
+  assign(paste0("excess_", condition), excess_percentage)
+}
+
+
+excess_0.00 <- excess_0.05 <- excess_0.08 <- numeric()
+
+conditions <- c("0.00", "0.05", "0.08")
+
+for (i in seq_along(conditions)) {
+  condition <- conditions[i]
+  
+  speed_over_115 <- sum(filtered_data$speed[filtered_data$condition == condition] > 115)
+  rows_condition <- nrow(filtered_data[filtered_data$condition == condition, ])
+  excess_percentage <- round((speed_over_115 / rows_condition) * 100, 2)
+  
+  # Assign results to respective variables
+  assign(paste0("excess_", condition), excess_percentage)
+  
+}
+
+# Create a data frame with the values
+excess_bar_data <- data.frame(
+  BAC = c('0.00', '0.05', '0.08'),
+  Value = c(excess_0.00, excess_0.05, excess_0.08)
+)
+
+
+```
+
+Your speed was measured throughout the drive. Excluding section one where you were required to follow behind a car, your average speed in the placebo condition was **`r speed_stat0.00`km/h**, your average speed in the 0.05% BAC condition was **`r speed_stat0.05`km/h**, and your average speed in the 0.08% BAC condition was **`r speed_stat0.08`km/h**. 
+
+```{r, echo=FALSE}
+
+speed_bar <- ggplot(speedstats, aes(condition, speed, group_by(condition))) +
+  geom_bar(stat = "identity", aes(fill = condition)) +
+  coord_cartesian(ylim=c(100,130)) +
+  geom_hline(yintercept=110,linetype=2) +annotate("text",x=0.65,y=111,size=4,label=c('Speed Limit')) +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(title = "Average Speed",
+       x = "BAC condition",
+       y = "Speed (km/h)")
+print(speed_bar)
+
+```
+
+
+It is also important to understand how much of the drive you spent exceeding the speed limit. Although the speed limit was 110km/h we have chosen 115km/h as the speed cutoff here to allow for times when the driver might be only a couple of km/h over the speed limit unintentionally. Once again, this excluded the 'car following' portion of the drive, as your speeds were governed by the task of following the vehicle in front.
+
+In the placebo condition you spent **`r excess_0.00`%** of the drive in excess of 115km/h. 
+In the 0.05% BAC condition, you spent **`r excess_0.05`%** of the drive in excess of 115km/h.
+In the 0.08% BAC condition, you spent **`r excess_0.08`%** of the drive in excess of 115km/h.
+
+As you can see, you spent far more time speeding when driving after consuming alcohol compared to when you had consumed no alcohol. 
+
+```{r, echo=FALSE}
+#print the excess speed graph
+excess_bar <- ggplot(excess_bar_data, aes(BAC, Value, group = BAC)) +
+  geom_bar(stat = "identity", aes(fill = BAC)) + 
+  geom_text(aes(label = paste0(Value, "%")), vjust = -0.5) +
+  scale_fill_manual(values = colors) +  # Use scale_fill_manual to specify colors
+  theme_minimal() +
+  labs(title = "Percentage of drive spent in excess of 115km/h",
+       x = "BAC",
+       y = "Percentage") +
+  theme(legend.position = "none")
+
+
+suppressMessages(print(excess_bar))
+```
+
+### Standard Deviation of Speed
+In the context of driving, the standard deviation of speed can be thought of as a measure of how much individual speeds vary from the average (mean) speed. It provides an indication of the spread or dispersion of speeds. A low standard deviation suggests that the speed stayed relatively consistent or similar, while a high standard deviation suggests a greater diversity in speeds throughout the drive. 
+Excluding section one where you were required to follow behind a car whose speed was programmed to speed up and slow down, your standard deviation of speed in the placebo condition was **`r speed_sd0.00`**, your standard deviation of speed in the 0.05% BAC condition was **`r speed_sd0.05`**, and your standard deviation of speed in the 0.08% BAC condition was **`r speed_sd0.08`**. 
+`r if(speed_sd0.08 > speed_sd0.00) {"Your standard deviation of speed was highest in the 0.08% condition, indicating that the higher your BAC, the more trouble you had maintaining a consistent speed."}`
+
+On the graph below, you can see how your speed varied throughout the drive (excluding section 1), with the horizontal lines showing the average (mean) speed for each condition. You can also see how they compared to the speed limit of 110 km/h
+
+```{r, echo=FALSE}
+# Create a ggplot graph
+speed_sd_bar <- ggplot(speed_sd, aes(condition, speed, group_by(condition))) +
+  geom_bar(stat = "identity", aes(fill = condition)) + 
+  geom_text(aes(label = paste0(speed)), vjust = -0.5) +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  labs(title = "Standard deviation of speed",
+       x = "BAC",
+       y = "Standard Deviations") +
+  theme(legend.position = "none")
+ 
+suppressMessages(print(speed_sd_bar))
+```
+
+
+
+### Standard deviation of lateral position
+
+In the context of driving, the standard deviation of lateral position (SDLP) refers to a measure of how much your vehicle deviated or varies from its expected position on the center of the road.
+An SDLP of zero would mean that the vehicle stays perfectly in the center of the lane, while positive or negative values of SDLP suggests more variation in lateral position, indicating a less stable or more variable driving behavior (i.e. swerving). 
+
+```{r, echo=FALSE}
+
+# Create an empty list to store the results
+sdlp_list <- list()
+
+# Loop through the drives
+for (condition in c("0.00", "0.05", "0.08")) {
+  # Get the current drive list
+  drive <- get(condition)
+  
+  # Loop through the sections
+  for (section in 1:3) {
+    # Extract sdlp column from the corresponding section dataframe
+    sdlp <- drive[[paste0(condition, "_section", section, ".csv")]]$sdlp
+    
+    # Create a dataframe for the current section
+    sdlp_df <- data.frame(sdlp)
+    
+    # Add section and condition columns as categorical variables
+    sdlp_df$section <- factor(section)
+    sdlp_df$condition <- factor(condition)
+    
+    # Rename the columns
+    colnames(sdlp_df) <- c('sdlp', 'section', 'condition')
+    
+    # Append the current section dataframe to the list
+    sdlp_list[[paste0(condition, "_sdlp", section)]] <- sdlp_df
+  }
+}
+combined_sdlp <- do.call(rbind, sdlp_list)
+
+sdlpstats <- aggregate(sdlp ~ condition, combined_sdlp, mean)
+sdlp_stat0.00 <- round(sdlpstats$sdlp[sdlpstats$condition =="0.00"], 2)
+sdlp_stat0.05 <- round(sdlpstats$sdlp[sdlpstats$condition =="0.05"], 2)
+sdlp_stat0.08 <- round(sdlpstats$sdlp[sdlpstats$condition =="0.08"], 2)
+```
+The graphs below provide a visual representation of your SDLP, with a wider spread indicating a higher SDLP, or more swerving. As you can see on the plot below, your SDLP became higher when you had consumed more alcohol. In the placebo condition (green), your SDLP was **`r sdlp_stat0.00`%**. When your BAC was around 0.05% (yellow), your SDLP was **`r sdlp_stat0.05`%**, and when your BAC was about 0.08% (red), your SDLP was **`r sdlp_stat0.08`%**. 
+
+```{r, echo=FALSE}
+sdlp_plot <- ggplot(combined_sdlp, aes(x = sdlp, y = condition)) +
+  geom_density_ridges(aes(fill = condition)) +
+  scale_fill_manual(values = colors) +
+  theme(legend.position = "none") +
+  theme_minimal() +
+  labs(x = "SDLP", y = "Alcohol Dose Condition") +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  xlim(-2, 2)
+suppressMessages(print(sdlp_plot)) 
+```
+### Car Following Task
+
+
+```{r, echo=FALSE}
+# Loop through the drives and sections using lapply
+conditions <- c("0.00", "0.05", "0.08")
+
+headway_list <- lapply(conditions, function(condition) {
+  drive <- get(condition)
+  
+  section_list <- lapply(1:3, function(section) {
+    section_df <- drive[[paste0(condition, "_section", section, ".csv")]]
+    headway_df <- data.frame(time = section_df$time,
+                           headway = section_df$headway,
+                           red_car_speed = section_df$red_car_speed,
+                           speed = section_df$speed,
+                           section = factor(section),
+                           condition = factor(condition))
+    return(headway_df)
+  })
+  
+  names(section_list) <- paste0(condition, "_headway", 1:3)
+  
+  return(section_list)
+})
+
+#wrangle that data
+headway_list <- unlist(headway_list, recursive = FALSE)
+combined_headway <- do.call(rbind, headway_list)
+headway <- subset(combined_headway, section == 1 & headway != 99000, select = -c(section))
+
+#make dataset of means for hlines
+hw_stats <- aggregate(headway ~ condition, data = headway, mean)
+hw_0.00 <- round(hw_stats$headway[hw_stats$condition == "0.00"], 2)
+hw_0.05 <- round(hw_stats$headway[hw_stats$condition == "0.05"], 2)
+hw_0.08 <- round(hw_stats$headway[hw_stats$condition == "0.08"], 2)
+
+# Fit linear models and calculate R-squared for each condition for coherence
+models <- lapply(unique(headway$condition), function(cond) {
+  lm_model <- lm(speed ~ red_car_speed, data = subset(headway, condition == cond))
+  glance(lm_model)$r.squared
+})
+
+# Get names for the R-squared values for each condition
+names(models) <- unique(headway$condition)
+co_0.00 <- round(models[["0.00"]], 2)
+co_0.05 <- round(models[["0.05"]], 2)
+co_0.08 <- round(models[["0.08"]], 2)
+
+##LANE CROSSINGS##
+lane_cross_0.00 <- tail(`0.00`$"0.00_section3.csv"$lane, n = 1)
+lane_cross_0.05 <- tail(`0.05`$"0.05_section3.csv"$lane, n = 1)
+lane_cross_0.08 <- tail(`0.08`$"0.08_section3.csv"$lane, n = 1)
+
+```
+
+For the first section of the highway drive, you were tasked with trying to maintain a consistent distance from the car in front.  
+As you can see on the plot below, your following distance became a shorter when you had consumed more alcohol. In the placebo condition (green), your average following distance was  **`r hw_0.00` metres**. When your BAC was around 0.05% (yellow), your average following distance was  **`r hw_0.05` metres**, and when your BAC was about 0.08% (red), your average following distance was **`r hw_0.08` metres**.
+
+In addition to the car following distance, we also measured speed coherence, which is how well you could maintain a consistent distance from the car in front, as it sped up and slowed down. Scores range from 0-1, and a perfect speed coherence score would be 1, meaning you perfectly matched the car in fronts speed for the entirety of the car following task. Your speed coherence for the three conditions were: \
+
+0.00% BAC condition: `r co_0.00` \
+0.05% BAC condition: `r co_0.05` \
+0.08% BAC condition: `r co_0.08` \
+
+We also monitored the number of times you veered out of your allocated lane. \
+When your BAC was 0.00, you veered out of the lane **`r lane_cross_0.00`** times. \
+When your BAC was 0.05, you veered out of the lane **`r lane_cross_0.05`** times.\
+When your BAC was 0.08, you veered out of the lane **`r lane_cross_0.08`** times. \
+
+
+``` {r, echo = FALSE}
+hw_plot <- ggplot(headway, aes(time, headway, color = condition)) +
+  geom_line() +
+  geom_hline(data = hw_stats, aes(yintercept = headway, color = condition), linetype = "dashed", linewidth = 1) +
+  labs(title = "Comparison of Following Distance for the Car Following Task", 
+       x = "Time",
+       y = "Car Following Distance",
+       color = "Condition") +
+  scale_color_manual(values = c("0.00" = "green", "0.05" = "yellow", "0.08" = "red"))
+suppressMessages(print(hw_plot))
+```
+
+##MAKE A SUMMARY TABLE THAT BINDS TOGETHER EVERYTHING FROM ABOVE##
+
+
+<div class="alert alert-info">
+I did have the information here for the cognitive tests but they weren't very informative.
+</div>
+
+
+
+
+
+
+
